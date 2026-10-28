@@ -117,11 +117,16 @@ sign_rpm() {
 while IFS= read -r -d '' rpm; do
   parent=$(basename "$(dirname "$rpm")")
   pkgarch=$(rpm -qp --nosignature --qf '%{ARCH}' "$rpm")
-  if [[ "$parent" == "noarch" && "$pkgarch" != "noarch" ]]; then
+  sourcepackage=$(rpm -qp --nosignature --qf '%{SOURCEPACKAGE}' "$rpm")
+  if [[ "$parent" == "SRPMS" ]]; then
+    if [[ "$sourcepackage" != "1" ]]; then
+      echo "Only source packages belong in SRPMS: $rpm" >&2
+      exit 1
+    fi
+  elif [[ "$parent" == "noarch" && "$pkgarch" != "noarch" ]]; then
     echo "Only noarch packages belong in a noarch directory: $rpm" >&2
     exit 1
-  fi
-  if [[ "$parent" != "noarch" && "$pkgarch" != "$parent" && "$pkgarch" != "noarch" ]]; then
+  elif [[ "$parent" != "noarch" && "$pkgarch" != "$parent" && "$pkgarch" != "noarch" ]]; then
     echo "Package arch ${pkgarch} does not match ${parent}: $rpm" >&2
     exit 1
   fi
@@ -181,7 +186,7 @@ for release_dir in "${releases[@]}"; do
   arch_dirs=("${release_dir}"*/)
   for arch_dir in "${arch_dirs[@]}"; do
     arch=$(basename "$arch_dir")
-    [[ "$arch" == "noarch" ]] && continue
+    [[ "$arch" == "noarch" || "$arch" == "SRPMS" ]] && continue
     arches+=("$arch")
   done
   if [[ ${#arches[@]} -eq 0 && -d "${release_dir}/noarch" ]]; then

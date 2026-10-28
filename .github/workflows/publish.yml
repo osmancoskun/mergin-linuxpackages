@@ -1,12 +1,15 @@
 name: Publish repository
 
 on:
+  schedule:
+    - cron: "17 * * * *"
   push:
     branches: [main]
     paths:
       - "packages/**"
       - "keys/**"
       - "scripts/**"
+      - "sources.txt"
       - ".github/workflows/publish.yml"
   workflow_dispatch:
 
@@ -22,11 +25,32 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Fetch upstream release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch-releases.py
+
+      - name: Decide whether to publish
+        id: plan
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          incoming=(incoming/*.rpm)
+          if [[ "${{ github.event_name }}" == "schedule" && ${#incoming[@]} -eq 0 ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No new upstream packages."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign packages and build the repository
+        if: steps.plan.outputs.publish == 'true'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -48,9 +72,10 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             fedora:44 \
-            bash scripts/build-repo.sh
+            bash -lc 'bash scripts/place-rpms.sh && bash scripts/build-repo.sh'
 
       - name: Commit signed packages
+        if: steps.plan.outputs.publish == 'true'
         run: |
           set -euo pipefail
           git add -- packages README.md
@@ -58,21 +83,29 @@ jobs:
             echo "Packages are already signed."
             exit 0
           fi
+          if git diff --cached --name-only --diff-filter=A -- packages | grep -q .; then
+            message=$'feat: publish packages from upstream releases\n\nImport RPM files from the upstream release list and sign them.'
+          else
+            message=$'chore: sign repository packages'
+          fi
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "Sign RPM packages"
+              commit -m "$message"
           git push
 
       - name: Configure GitHub Pages
+        if: steps.plan.outputs.publish == 'true'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload Pages artifact
+        if: steps.plan.outputs.publish == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
   deploy:
     needs: build
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
