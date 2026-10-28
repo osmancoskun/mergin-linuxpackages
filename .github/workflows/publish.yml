@@ -1,0 +1,83 @@
+name: Publish repository
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "keys/**"
+      - "scripts/**"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Sign packages and build the repository
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GPG_PRIVATE_KEY}" || -z "${GPG_PASSPHRASE}" ]]; then
+            echo "Add the GPG_PRIVATE_KEY and GPG_PASSPHRASE repository secrets, then rerun this workflow."
+            exit 1
+          fi
+          docker run --rm \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -e GPG_PRIVATE_KEY \
+            -e GPG_PASSPHRASE \
+            -e GITHUB_REPOSITORY_OWNER \
+            -e GITHUB_REPOSITORY_NAME \
+            -v "$PWD:/work" \
+            -w /work \
+            fedora:44 \
+            bash scripts/build-repo.sh
+
+      - name: Commit signed packages
+        run: |
+          set -euo pipefail
+          git add -- packages README.md
+          if git diff --cached --quiet; then
+            echo "Packages are already signed."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Sign RPM packages"
+          git push
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
