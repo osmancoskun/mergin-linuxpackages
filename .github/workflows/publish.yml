@@ -72,7 +72,7 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             fedora:44 \
-            bash -lc 'bash scripts/place-rpms.sh && bash scripts/build-repo.sh'
+            bash -lc 'bash scripts/place-rpms.sh && bash scripts/prune-rpms.sh && bash scripts/build-repo.sh'
 
       - name: Commit signed packages
         if: steps.plan.outputs.publish == 'true'
@@ -84,7 +84,9 @@ jobs:
             exit 0
           fi
           if git diff --cached --name-only --diff-filter=A -- packages | grep -q .; then
-            message=$'feat: publish packages from upstream releases\n\nImport RPM files from the upstream release list and sign them.'
+            message=$'feat: publish packages from upstream releases\n\nImport the latest RPM release assets and remove older versions.'
+          elif git diff --cached --name-only --diff-filter=D -- packages | grep -q .; then
+            message=$'chore: keep only the latest package version\n\nRemove older RPM releases for each application.'
           else
             message=$'chore: sign repository packages'
           fi

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Download RPM release assets listed in sources.txt into incoming/."""
+"""Download the latest RPM release assets listed in sources.txt into incoming/."""
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -80,6 +81,31 @@ def download(asset, dest):
             output.write(chunk)
 
 
+def version_key(tag):
+    body = tag[1:] if tag[:1] in ("v", "V") else tag
+    return tuple(int(part) for part in re.findall(r"\d+", body))
+
+
+def latest_release(repo):
+    found = []
+    for release in releases(repo):
+        if release.get("draft"):
+            continue
+        assets = [asset for asset in release.get("assets", []) if asset.get("name", "").endswith(".rpm")]
+        if assets:
+            found.append((release, assets))
+    stable = [item for item in found if not item[0].get("prerelease")]
+    pool = stable or found
+    if not pool:
+        print(f"no rpm releases for {repo}")
+        return None, []
+    release, assets = max(
+        pool,
+        key=lambda item: (version_key(item[0].get("tag_name") or ""), item[0].get("published_at") or ""),
+    )
+    return release, assets
+
+
 def main():
     INCOMING.mkdir(mode=0o755, exist_ok=True)
     for old in INCOMING.glob("*.rpm"):
@@ -87,22 +113,23 @@ def main():
 
     downloaded = 0
     for repo in sources():
+        release, assets = latest_release(repo)
+        if release is None:
+            continue
+        tag = release.get("tag_name", "")
+        print(f"latest {repo} {tag}")
         seen = set()
-        for release in releases(repo):
-            if release.get("draft"):
+        for asset in assets:
+            name = asset.get("name", "")
+            if not name.endswith(".rpm") or name in seen:
                 continue
-            tag = release.get("tag_name", "")
-            for asset in release.get("assets", []):
-                name = asset.get("name", "")
-                if not name.endswith(".rpm") or name in seen:
-                    continue
-                seen.add(name)
-                if already_have(name):
-                    print(f"skip {repo} {tag} {name}")
-                    continue
-                print(f"download {repo} {tag} {name}")
-                download(asset, INCOMING / name)
-                downloaded += 1
+            seen.add(name)
+            if already_have(name):
+                print(f"skip {repo} {tag} {name}")
+                continue
+            print(f"download {repo} {tag} {name}")
+            download(asset, INCOMING / name)
+            downloaded += 1
     print(f"downloaded {downloaded}")
 
 
