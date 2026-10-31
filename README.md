@@ -39,3 +39,5 @@ EY9ytv/NjjfOZ+7MB3JCDeStM/GnA8L0L2IQqkf1O98tg11MmfP6BGtpNg==
 | Package | Version | Fedora |
 | --- | --- | --- |
 | genesis | 0.1.3-1.fc44 | 44 |
+| sylva | 0.1.1-1.fc44 | 44 |
+| sylvad | 0.1.1-1.fc44 | 44 |

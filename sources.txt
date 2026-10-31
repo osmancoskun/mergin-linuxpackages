@@ -1,3 +1,4 @@
 # GitHub repositories whose release assets are imported into this repository.
 # One owner/name per line.
 osmancoskun/genesis
+osmancoskun/sylva
